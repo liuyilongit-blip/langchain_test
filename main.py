@@ -2,7 +2,15 @@ import os
 
 from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
+
+from langchain_agents import create_agent
+# 从 LangChain 导入 tool 装饰器
+from langchain_core.tools import tool
+# 从 LangChain 核心模块导入 HumanMessage 类。使用 HumanMessage 来调用Agent，这将是Agent执行的输入。
+from langchain_core import HumanMessage
+# 为Agent提供LLM
 from langchain_openai import ChatOpenAI
+
 
 
 load_dotenv()
