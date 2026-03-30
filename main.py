@@ -1,6 +1,10 @@
 import os
 
+from typing import List
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+
+load_dotenv()
 
 from langchain.agents import create_agent
 # 从 LangChain 导入 tool 装饰器
@@ -9,40 +13,37 @@ from langchain.tools import tool
 from langchain_core.messages import HumanMessage
 # 为Agent提供LLM
 from langchain_openai import ChatOpenAI
-from tavily import TavilyClient
+from langchain_tavily import TavilySearch
 
-tavily = TavilyClient()
+class Sourse(BaseModel):
+    # 定义一个供 Agent 使用的来源数据结构（Schema）
+    """Schema for a source used by the agent"""
 
-load_dotenv()
-# 初始化一个 ChatOpenAI 实例
+    url: str = Field(description="The URL of the source")
+
+class AgentResponse(BaseModel):
+    # 包括答案和来源的代理响应数据结构
+    """Schema for agent response with answer and sources"""
+
+    # 描述为“代理对查询的回答”。代理的答案关于问题
+    answer: str = Field(description="The agent's answer to the query")
+    # 如果没有来源，则默认为空列表。列表关于来源，用于产生答案。
+    sources: List[Sourse] = Field(default_factory=list, description="List of sources used to generate the answer")
+
 llm = ChatOpenAI(
     temperature=0,
-    model="Qwen/Qwen2.5-7B-Instruct",  # 或其他模型
+    model="gpt-5",  # 或其他模型
     openai_api_key=os.environ.get("OPENAI_API_KEY"),
-    openai_api_base="https://api.siliconflow.cn/v1",
+    openai_api_base="https://oa.api2d.net",
 )
 
-@tool
-def search(query: str) -> str:
-    # Google 风格（最流行）：自动生成文档，可读性好且被 VS Code 等工具原生支持
-    """模拟一个天气查询工具，返回天气信息。
-
-    Args:
-        query (str): 城市名称
-
-    Returns:
-        str: 天气信息字符串
-    """
-    
-    return tavily.search(query=query)
-
-tools = [search]
-# 这个代理实际上是一个 runnable（可运行对象）
-agent = create_agent(model=llm, tools=tools)
+tools = [TavilySearch()]
+# 这个代理实际上是一个 runnable（可运行对象）。response_format响应格式。
+agent = create_agent(model=llm, tools=tools, response_format=AgentResponse)
 
 def main():
-    res = agent.invoke({"messages": HumanMessage(content="请查询一下：北京的天气")})
-    print(res)
+    res = agent.invoke({"messages": HumanMessage(content="search for 3job postings for an ai engineer using langchain in the bay area on linkedin and list theirdetails")})
+    print(res)  
 
 
 if __name__ == "__main__":
