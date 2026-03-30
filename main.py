@@ -1,34 +1,15 @@
 import os
-
-from typing import List
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from langchain.agents import create_agent
-# 从 LangChain 导入 tool 装饰器
+from langchain.chat_models import init_chat_model
+# tool 装饰器。它将接收我们的函数，并转换为自定义工具。
 from langchain.tools import tool
-# 从 LangChain 核心模块导入 HumanMessage 类。使用 HumanMessage 来调用Agent，这将是Agent执行的输入。
-from langchain_core.messages import HumanMessage
+# ToolMessage是一个包含工具结果的消息。SystemMessage 是一个包装器，用于表示系统消息。HumanMessage 让我们可以使用单一接口来应对所有模型。
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 # 为Agent提供LLM
 from langchain_openai import ChatOpenAI
-from langchain_tavily import TavilySearch
-
-class Sourse(BaseModel):
-    # 定义一个供 Agent 使用的来源数据结构（Schema）
-    """Schema for a source used by the agent"""
-
-    url: str = Field(description="The URL of the source")
-
-class AgentResponse(BaseModel):
-    # 包括答案和来源的代理响应数据结构
-    """Schema for agent response with answer and sources"""
-
-    # 描述为“代理对查询的回答”。代理的答案关于问题
-    answer: str = Field(description="The agent's answer to the query")
-    # 如果没有来源，则默认为空列表。列表关于来源，用于产生答案。
-    sources: List[Sourse] = Field(default_factory=list, description="List of sources used to generate the answer")
 
 llm = ChatOpenAI(
     temperature=0,
@@ -37,13 +18,32 @@ llm = ChatOpenAI(
     openai_api_base="https://oa.api2d.net",
 )
 
-tools = [TavilySearch()]
-# 这个代理实际上是一个 runnable（可运行对象）。response_format响应格式。
-agent = create_agent(model=llm, tools=tools, response_format=AgentResponse)
+tools = []
+
+# 限制循环次数
+MAX_ITERATIONS= 10
+
+@tool
+def get_product_price(product: str) -> float:
+    """Look up the price of a product in the catalog."""
+    print (f"   >>Executing get_product_price(product='{product}')")
+    prices = { "laptop": 1299.99, "headphones": 149.95, "keyboard": 89.50 }
+    return prices.get(product, 0)
+
+@tool
+def apply_discount(price: float, discount_tier: str) -> float:
+    """Apply a discount tier to a price and return the final price.
+    Available tiers: bronze, silver, gold."""
+    print (f"   >>Executing apply_discount(price={price}, discount_tier='{discount_tier}')")
+    discount_percentages = { "bronze": 5, "silver": 12, "gold": 23 }
+    discount = discount_percentages.get(discount_tier, 0)
+    return round(price * (1 - discount / 100), 2)
+
+def run_agent(query: str):
+    pass
 
 def main():
-    res = agent.invoke({"messages": HumanMessage(content="search for 3job postings for an ai engineer using langchain in the bay area on linkedin and list theirdetails")})
-    print(res)  
+    print("欢迎使用LangChain工具示例！")
 
 
 if __name__ == "__main__":
