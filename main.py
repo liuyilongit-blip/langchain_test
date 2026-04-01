@@ -34,10 +34,10 @@ def apply_discount(price: float, discount_tier: str) -> float:
 
 # 将追踪函数内的所有操作，并归入同一个作用域。向代理循环添加代码时，所有操作都会嵌套在LangChain Agent Loop追踪记录下。
 # 这对统计非常有用，如消耗了多少token。将所有内容嵌套在一个追踪记录下非常实用。
-# @traceable(name="LangChain Agent Loop")
+@traceable(name="LangChain Agent Loop")
 def run_agent(question: str):
     tools = [get_product_price, apply_discount]
-    tool_dict = {t.name: t for t in tools}
+    tools_dict = {t.name: t for t in tools}
     llm = ChatOpenAI(
         temperature=0,
         model="Qwen/Qwen2.5-7B-Instruct",  # 或其他模型
@@ -70,9 +70,29 @@ def run_agent(question: str):
     for iteration in range (1, MAX_ITERATIONS):
         print(f"\n--- Iteration{iteration} ---")
         ai_message = llm_with_tools.invoke(messages)
-
-    return messages
+        tool_calls = ai_message.tool_calls
+        # If no tool calls, this is the final answer
+        if not tool_calls:
+            print(f"\nFinal Answer: {ai_message.content}")
+            return ai_message.content
+        # Process only the FIRST tool call - force one tool per iteration
+        tool_call = tool_calls[0]
+        tool_name = tool_call.get("name")
+        tool_args = tool_call.get("args", {})
+        # 方便追踪
+        tool_call_id = tool_call.get("id")
+        print(f"[Tool Selected]{tool_name} with args: {tool_args}")
+        tool_to_use = tools_dict.get(tool_name)
+        if tool_to_use is None:
+            raise ValueError(f"Tool '{tool_name}' not found")
+        observation = tool_to_use.invoke(tool_args)
+        print(f"[ToolResult]{observation}")
+        messages.append(ai_message)
+        messages.append(
+            ToolMessage(content=str(observation), tool_call_id=tool_call_id)
+        )
+    print("ERROR: Max iterations reached without a final answer")
+    return None
 
 if __name__ == "__main__":
     result = run_agent("what is the price of a laptop after applying a gold discount?")
-    print("123")
