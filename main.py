@@ -1,3 +1,5 @@
+import re
+import inspect
 import os
 from dotenv import load_dotenv
 
@@ -30,102 +32,65 @@ def apply_discount(price: float, discount_tier: str) -> float:
     discount = discount_percentages.get(discount_tier, 0)
     return round(price * (1 - discount / 100), 2)
 
-# Difference 2: Without @tool, we must MANUALLY define the JSoN schema for each function.
-# This is exactly what LangChain's @tool decorator generates automatically
-# from the function's type hints and docstring.
-tools_for_llm = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_product_price",
-            # 这类似于函数的描述
-            "description": "Look up the price of a product in the catalog.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "product": {
-                        "type": "string",
-                        "description": "The product name, e.g. 'laptop', 'headphones', 'keyboard'"
-                    }
-                },
-                "required": ["product"] # 这个参数(product)是必需的
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "apply_discount",
-            "description": "Apply a discount tier to a price and return the final price. Available tiers: bronze, silver, gold.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "price": {
-                        "type": "number",
-                        "description": "The original price"
-                    },
-                    "discount_tier": {
-                        "type": "string",
-                        "description": "The discount.tier:'bronze','silver',or 'gold'"
-                    }
-                },
-                "required": ["price", "discount_tier"] # 这两个参数(price, discount_tier)都是必需的
-            }
-        }
-    }
-]
+tools = {
+    "get_product_price" : get_product_price,
+    "apply_discount" : apply_discount
+}
 
-# NOTE:Ollama can also auto-generate these schemas if you pass the functions
-# directly as tools (similar to-LangChain's.@tool decorator):
-# tools_for_llm.=.[get_product_price,apply_discount]
-# However, this requires your docstrings to follow the Google docstring format
-# so Ollama can parse parameter descriptions from the Args section, For example:
-#   def get_product_price(product: str) -> float:
-#       """Look up the price of a product in the catalog.
-#
-#       Args:
-#           product: The product name, e.g. 'laptop', 'headphones', 'keyboard'.
-#       Returns:
-#           The price of the product, or 0 if not found.
-#       """
-# We keep the manual JSoN version here so you can see what @tool hides from you.
+def get_tool_descriptions(tools_dict):
+    descriptions = []
+    for tool_name, tool_function in tools_dict.items():
+        # _wrapped_ bypasses decorator wrappers (e.g., @traceable adds *, config=None)
+        # 如果 tool_function 有 __wrapped__ 属性 → 返回 __wrapped__（原始未装饰的函数），如果没有 → 返回 tool_function 本身
+        original_function = getattr(tool_function, "__wrapped__", tool_function)
+        # 获取函数的签名（参数和返回类型）
+        signature = inspect.signature(original_function)
+        # 获取函数的文档字符串，如果没有则返回空字符串
+        docstring = inspect.getdoc(tool_function) or ""
+        descriptions.append(f"{tool_name}{signature} - {docstring}")
+    return "\n".join(descriptions)
+tool_descriptions = get_tool_descriptions(tools)
+tool_names = ", ".join(tools.keys())
 
-# --- Helper:traced 0llama call ---
-# Difference 3:Without LangChain, we must manually trace LLM calls for LangSmith.
+question = "what is the price of a laptop after applying a gold discount?"
+react_prompt = f"""
+"STRICT RULES - you must follow these exactly:\n"
+"1. NEVER guess or assume any product price. You MUST call get_product_price first to get the real price."
+"2. Only call apply_discount AFTER you have received a price from get_product_price. Pass the exact price returned by get_product_price - do NoT pass a made-up number."
+"3. NEVER calculate discounts yourself using math.Always use the apply_discount tool."
+"4. If the user does not specify a discount tier,ask them which tier to use - do NOT assume one." 
 
+Answer the following questions as best you can. You have access to the following tools:
+
+{tool_descriptions}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+Begin!
+
+Question: {question}
+Thought:"""
+
+# CHANGE 4: Drop tools= from ollama.chat(). The LLM has no idea it's an agent -
+# all agency comes from the prompt above and our regex parsing below.
 @traceable(name="ollama Chat",run_type="llm")
-def ollama_chat_traced(messages):
-    return ollama.chat(model=MODEL, tools=tools_for_llm, messages=messages)
+def ollama_chat_traced(model,messages,options):
+    return ollama.chat(model=model, messages=messages, options=options)
 
 # 将追踪函数内的所有操作，并归入同一个作用域。向代理循环添加代码时，所有操作都会嵌套在LangChain Agent Loop追踪记录下。
 # 这对统计非常有用，如消耗了多少token。将所有内容嵌套在一个追踪记录下非常实用。
 @traceable(name="Ollama Agent Loop")
 def run_agent(question: str):
-    tools_dict= {
-        "get_product_price" : get_product_price,
-        "apply_discount" : apply_discount
-    }
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a helpful shopping assistant."
-                "You have access to a product catalog tool"
-                "and a discount tool.\n\n"
-                "STRICT RULES - you must follow these exactly:\n"
-                "1. NEVER guess or assume any product price."
-                "You MUST call get_product_price first to get the real price.\n"
-                "2. Only call apply_discount AFTER you have received "
-                "a price from get_product_price. Pass the exact price "
-                "returned by get_product_price - do NoT pass a made-up number.\n"
-                "3. NEVER calculate discounts yourself using math."
-                "Always use the apply_discount tool.\n"
-                "4. If the user does not specify a discount tier,"
-                "ask them which tier to use - do NOT assume one."                
-            )
-        },
-        { "role": "user","content": question }
-    ]
+
     for iteration in range (1, MAX_ITERATIONS):
         print(f"\n--- Iteration{iteration} ---")
         response = ollama_chat_traced(messages=messages)
