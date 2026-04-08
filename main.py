@@ -14,7 +14,7 @@ from langsmith import traceable
 
 # 限制循环次数
 MAX_ITERATIONS= 10
-MODEL = "qwen3:4b"  # 或其他模型
+MODEL = "qwen3:1.7b"  # 或其他模型
 
 @traceable(run_type="tool")
 def get_product_price(product: str) -> float:
@@ -52,7 +52,6 @@ def get_tool_descriptions(tools_dict):
 tool_descriptions = get_tool_descriptions(tools)
 tool_names = ", ".join(tools.keys())
 
-question = "what is the price of a laptop after applying a gold discount?"
 react_prompt = f"""
 "STRICT RULES - you must follow these exactly:\n"
 "1. NEVER guess or assume any product price. You MUST call get_product_price first to get the real price."
@@ -77,7 +76,7 @@ Final Answer: the final answer to the original input question
 
 Begin!
 
-Question: {question}
+Question: {{question}}
 Thought:"""
 
 # CHANGE 4: Drop tools= from ollama.chat(). The LLM has no idea it's an agent -
@@ -90,11 +89,25 @@ def ollama_chat_traced(model,messages,options):
 # 这对统计非常有用，如消耗了多少token。将所有内容嵌套在一个追踪记录下非常实用。
 @traceable(name="Ollama Agent Loop")
 def run_agent(question: str):
+    print(f"Question:{question}")
+    print("="* 60)
+    # CHANGE 5: One prompt string replaces the system/user message split.
+    prompt = react_prompt.format(question=question)
+    scratchpad = ""
 
     for iteration in range (1, MAX_ITERATIONS):
         print(f"\n--- Iteration{iteration} ---")
-        response = ollama_chat_traced(messages=messages)
+        full_prompt = prompt + scratchpad
+
+        # Stop token prevents the LLM from generating its own Observation -
+        # we inject the real tool result instead.
+        response = ollama_chat_traced(
+            model = MODEL,
+            messages = [{"role": "user","content": full_prompt}],
+            options = {"stop": ["\n1Observation"], "temperature": 0}
+        )
         ai_message = response.message
+        
         tool_calls = ai_message.tool_calls
         # If no tool calls, this is the final answer
         if not tool_calls:
