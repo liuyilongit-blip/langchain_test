@@ -104,10 +104,22 @@ def run_agent(question: str):
         response = ollama_chat_traced(
             model = MODEL,
             messages = [{"role": "user","content": full_prompt}],
-            options = {"stop": ["\n1Observation"], "temperature": 0}
+            options = {"stop": ["\nObservation"], "temperature": 0}
         )
-        ai_message = response.message
-        
+        output = response.message.content
+        print(f"LLM Output:\n{output}")
+
+        print(f" [Parsing] Lookingfor Final Answer in LLMoutput...")
+        # 正则表达式是现代所有代理和函数调用的起源
+        final_answer_match = re.search(r"Final Answer:\s*(.+)", output)
+        if final_answer_match:
+            final_answer = final_answer_match.group(1).strip()
+            print(f" [Parsed] Final Answer: {final_answer}")
+            print("\n" + "=" * 60)
+            print(f"Final Answer: {final_answer}")
+            return final_answer
+
+
         tool_calls = ai_message.tool_calls
         # If no tool calls, this is the final answer
         if not tool_calls:
