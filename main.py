@@ -148,6 +148,7 @@ def run_agent(question: str):
 
         # CHANGE 7: History is one growing string re-sent every iteration (replaces messages.append).
         scratchpad += f"{output}\nObservation: {observation}\nThought:"
+        print(f"scratchpad: {scratchpad}")
 
 
     print("ERROR: Max iterations reached without a final answer")
