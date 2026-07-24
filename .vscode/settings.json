@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+  "terminal.integrated.env.windows": {
+    "PYTHONIOENCODING": "UTF-8",
+    "PYTHONUTF8": "1"
+  }
+}
