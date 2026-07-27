@@ -81,8 +81,9 @@ def create_retrieval_chain_with_lcel():
     -更好的调试:LangChain提供更好的可观测性工具
     """
     retrieval_chain = (
-        retriever 
-        | format_docs 
+        RunnablePassthrough.assign(
+            context=itemgetter[str]("question") | retriever | format_docs 
+        )
         | prompt_template
         | llm
         | StrOutputParser()
@@ -104,9 +105,18 @@ if __name__ == "__main__":
     # print(result_raw.content)
 
     # 选项1：使用不包含LCEL的实现
+    # print("\n"+ "="* 70)
+    # print("实现 1: 简单检索链 (Without LCEL)")
+    # print("=" * 70)
+    # result_simple = retrieval_chain_without_lcel(query)
+    # print("\n答案:")
+    # print(result_simple)
+
+    # 选项2：使用带LCEL的实现(更优方法)
     print("\n"+ "="* 70)
-    print("实现 1: 简单检索链 (Without LCEL)")
-    print("=" * 70)
-    result_simple = retrieval_chain_without_lcel(query)
+    print("实施方案2：采用LCEL————更优方法")
+    print("="* 70)
+    chain_with_lcel = create_retrieval_chain_with_lcel()
+    result_lcel = chain_with_lcel.invoke({"question": query})
     print("\n答案:")
-    print(result_simple)
+    print(result_lcel)
