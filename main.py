@@ -9,6 +9,11 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
 
 load_dotenv()
+os.environ['HTTP_PROXY'] = ''
+os.environ['HTTPS_PROXY'] = ''
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
+
 
 print("Initializing components...")
 
@@ -82,7 +87,7 @@ def create_retrieval_chain_with_lcel():
     """
     retrieval_chain = (
         RunnablePassthrough.assign(
-            context=itemgetter[str]("question") | retriever | format_docs 
+            context=itemgetter("question") | retriever | format_docs 
         )
         | prompt_template
         | llm
