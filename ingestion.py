@@ -1,12 +1,12 @@
 import asyncio
 import os
-import ssl
+# import ssl
 from typing import Any, Dict, List
 
 import certifi
 from dotenv import load_dotenv
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chromadb import Chroma
+# from langchain_text_splitters import RecursiveCharacterTextSplitter
+# from langchain_chromadb import Chroma
 from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
@@ -34,28 +34,41 @@ embeddings = OpenAIEmbeddings(
 )
 # chroma=Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
 vectorstore = PineconeVectorStore(index_name="langchain-doc-index",embedding=embeddings)
+
+# from langchain_community.document_loaders import TextLoader
+# print('Ingesting...')
+# loader = TextLoader("./text.txt", encoding="utf-8")
+# document = loader.load()
+# print('splitter...')
+# text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=1000, chunk_overlap=0)
+# texts = text_splitter.split_documents(document)
+# print('ingesting...')
+# PineconeVectorStore.from_documents(texts, embeddings,index_name=os.environ['INDEX_NAME'])
+# print('finish')
+
 tavily_extract = TavilyExtract()
 tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
 tavily_crawl = TavilyCrawl()
 
-from langchain_community.document_loaders import TextLoader
-
-
-
-print('Ingesting...')
-loader = TextLoader("./text.txt", encoding="utf-8")
-document = loader.load()
-print('splitter...')
-text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=1000, chunk_overlap=0)
-texts = text_splitter.split_documents(document)
-print('ingesting...')
-
-PineconeVectorStore.from_documents(texts, embeddings,index_name=os.environ['INDEX_NAME'])
-print('finish')
-
+async def main():
+    """主异步函数，用于协调整个过程。"""
+    log_header("文档摄入管道")
+    log_info(
+        "TavilyCrawl开始爬取文档 https://python.langchain.com/",
+        Colors.PURPLE,
+    )
+    # 爬取文档网站
+    res = tavily_crawl.invoke({
+        "url":"https://python.langchain.com/",
+        "max_depth":1,
+        "extract_depth":"advanced",
+        "instructions":"请获取有关智能体的内容"
+    })
+    all_docs = [Document(page_content=result["raw_content"], metadata={"source": result["url"]}) for result in res["results"]]
+    log_success(
+        f"爬取完成，获取到 {len(all_docs)} 个文档。"
+    )
 
 if __name__ == "__main__":
-    import sys
-    sys.stdout.reconfigure(encoding='utf-8')
-    print("111111111")
+    asyncio.run(main())
     
