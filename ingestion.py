@@ -30,7 +30,7 @@ embeddings = OpenAIEmbeddings(
     model="BAAI/bge-m3",
     show_progress_bar=False, # 显示进度条
     chunk_size=50, # 每个批次的最大文档数
-    retry_min_seconds=10, # 重试API调用前的最短等待秒数
+    retry_min_seconds=10, # 重试间隔参数
 )
 # chroma=Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
 vectorstore = PineconeVectorStore(index_name="langchain-doc-index",embedding=embeddings)
@@ -50,16 +50,16 @@ tavily_extract = TavilyExtract()
 tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
 tavily_crawl = TavilyCrawl()
 
-async def main():
+async def main(): # 主协程
     """主异步函数，用于协调整个过程。"""
     log_header("文档摄入管道")
     log_info(
-        "TavilyCrawl开始爬取文档 https://python.langchain.com/",
+        "TavilyCrawl开始爬取文档 https://docs.langchain.com/oss/python/",
         Colors.PURPLE,
     )
     # 爬取文档网站
     res = tavily_crawl.invoke({
-        "url":"https://python.langchain.com/",
+        "url":"https://docs.langchain.com/oss/python/",
         "max_depth":1,
         "extract_depth":"advanced",
         "instructions":"请获取有关智能体的内容"
