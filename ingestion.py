@@ -51,22 +51,21 @@ tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
 tavily_crawl = TavilyCrawl()
 
 async def main(): # 主协程
-    """主异步函数，用于协调整个过程。"""
+    """用于编排整个流程的主异步函数"""
     log_header("文档摄入管道")
     log_info(
-        "TavilyCrawl开始爬取文档 https://docs.langchain.com/oss/python/",
+        "TavilyMap：开始从以下位置映射文档结构 https://docs.langchain.com/oss/python/",
         Colors.PURPLE,
     )
-    # 爬取文档网站
-    res = tavily_crawl.invoke({
+    # 映射文档结构
+    site_map = tavily_map.invoke({
         "url":"https://docs.langchain.com/oss/python/",
         "max_depth":1,
         "extract_depth":"advanced",
         "instructions":"请获取有关智能体的内容"
     })
-    all_docs = [Document(page_content=result["raw_content"], metadata={"source": result["url"]}) for result in res["results"]]
     log_success(
-        f"爬取完成，获取到 {len(all_docs)} 个文档。"
+        f"TavilyMap：已成功从文档站点映射了 {len(site_map['results'])} 个 URL"
     )
 
 if __name__ == "__main__":
