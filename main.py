@@ -1,127 +1,78 @@
+import asyncio
 import os
-from operator import itemgetter
+# import ssl
+from typing import Any, Dict, List
+
+import certifi
 from dotenv import load_dotenv
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+# from langchain_text_splitters import RecursiveCharacterTextSplitter
+# from langchain_chromadb import Chroma
+from langchain_core.documents import Document
+from langchain_openai import OpenAIEmbeddings
 from langchain_pinecone import PineconeVectorStore
+from langchain_tavily import TavilyCrawl, TavilyExtract, TavilyMap
+
+from logger import (Colors, log_error, log_header, log_info, log_success, log_warning)
 
 load_dotenv()
+
 os.environ['HTTP_PROXY'] = ''
 os.environ['HTTPS_PROXY'] = ''
 os.environ['http_proxy'] = ''
 os.environ['https_proxy'] = ''
 
+# Configure SSL context to use certifi certificates
+# ssl_context = ssl.create_default_context(cafile=certifi.where())
+# os.environ["SSL_CERT_FILE"] = certifi.where()
+# os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-print("Initializing components...")
-
-embeddings = OpenAIEmbeddings(model="BAAI/bge-m3")
-llm = ChatOpenAI(model="deepseek-ai/DeepSeek-V4-Flash")
-vectorstore = PineconeVectorStore(
-    index_name=os.environ['INDEX_NAME'],
-    embedding=embeddings
+embeddings = OpenAIEmbeddings(
+    model="BAAI/bge-m3",
+    show_progress_bar=False, # 显示进度条
+    chunk_size=50, # 每个批次的最大文档数
+    retry_min_seconds=10, # 重试间隔参数
 )
-retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+# chroma=Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
+vectorstore = PineconeVectorStore(index_name="langchain-doc-index",embedding=embeddings)
 
-prompt_template = ChatPromptTemplate.from_template(
-    """
-    仅根据以下上下文回答问题:
-    {context}
-    问题: {question}
-    提供一个详细的回答:
-    """
-)
+# from langchain_community.document_loaders import TextLoader
+# print('Ingesting...')
+# loader = TextLoader("./text.txt", encoding="utf-8")
+# document = loader.load()
+# print('splitter...')
+# text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=1000, chunk_overlap=0)
+# texts = text_splitter.split_documents(document)
+# print('ingesting...')
+# PineconeVectorStore.from_documents(texts, embeddings,index_name=os.environ['INDEX_NAME'])
+# print('finish')
 
-def format_docs(docs):
-    """将检索到的文档格式化为单个字符串"""
-    return "\n\n".join(doc.page_content for doc in docs)
-# ==========================
-# 实现1：无LCEL(基于简单函数的方法)
-# ==========================
-def retrieval_chain_without_lcel(query: str):
-    """
-    无需LCEL的简单检索链。
-    手动检索文档，格式化它们，并生成响应。
+tavily_extract = TavilyExtract()
+tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
+tavily_crawl = TavilyCrawl()
 
-    限制条件:
-    -手动逐步执行
-    -没有内置流支持
-    -没有额外代码的支持异步功能
-    -更难与其他链组合
-    -更冗长且易出错
-    """
-    # 步骤1：检索相关文档
-    docs = retriever.invoke(query)
-
-    # 步骤2：将文档格式化为上下文字符串
-    context = format_docs(docs)
-
-    # 步骤3：使用上下文和问题格式化消息
-    messages = prompt_template.format_messages(context=context, question=query)
-
-    # 步骤4：使用格式化后的消息列表（实际上只有一条消息）调用大语言模型
-    response = llm.invoke(messages)
-
-    # 步骤5：返回内容
-    return response.content
-
-# ==========================
-# 实现方案2：使用LCEL(LangChainExpression语言)一一更优方法
-# ==========================
-def create_retrieval_chain_with_lcel():
-    """
-    使用LCEL(LangChain表达式语言)创建一个检索链。
-    返回一个可以使用{"question": "..."}调用的链
-
-    相较于非LCEL方法的优势:
-    -声明式且可组合:易于使用管道操作符(|)链式执行操作
-    -内置流处理:chain.stream()可直接使用
-    -内置异步:提供chain.ainvoke()和chain.astream()函数
-    -批处理:chain.batch()用于多个输入
-    -类型安全:更好地集成LangChain的类型系统
-    -更少代码:更简洁易读
-    -可复用性:链可以保存、共享并与其他链组合
-    -更好的调试:LangChain提供更好的可观测性工具
-    """
-    retrieval_chain = (
-        RunnablePassthrough.assign(
-            context=itemgetter("question") | retriever | format_docs 
-        )
-        | prompt_template
-        | llm
-        | StrOutputParser()
+async def main(): # 主协程
+    """主异步函数，用于协调整个过程。"""
+    log_header("文档摄入管道")
+    log_info(
+        "TavilyCrawl开始爬取文档 https://docs.langchain.com/oss/python/",
+        Colors.PURPLE,
     )
-    return retrieval_chain
+    # 爬取文档网站
+    # res = tavily_crawl.invoke({
+    #     "url":"https://docs.langchain.com/oss/python/",
+    #     "max_depth":1,
+    #     "extract_depth":"advanced",
+    #     "instructions":"请获取有关智能体的内容"
+    # })
+    res = await tavily_extract.ainvoke(input={"urls": ["https://docs.langchain.com/oss/python/"]})
+    log_success(
+        f"爬取完成，获取到 {len(res['results'])} 个页面。"
+    )
+    all_docs = [Document(page_content=result["raw_content"], metadata={"source": result["url"]}) for result in res["results"]]
+    log_success(
+        f"爬取完成，获取到 {len(all_docs)} 个文档。"
+    )
 
 if __name__ == "__main__":
-    print("Retrieving...")
-
-    # Query
-    query = "什么是智能体?"
-
-    # 选项 0: 无RAG的原始调用
-    # print("\n"+ "="* 70)
-    # print("实现 0: 原始大模型调用 (No RAG)")
-    # print("=" * 70)
-    # result_raw = llm.invoke([HumanMessage(content=query)])
-    # print("\n答案:")
-    # print(result_raw.content)
-
-    # 选项1：使用不包含LCEL的实现
-    # print("\n"+ "="* 70)
-    # print("实现 1: 简单检索链 (Without LCEL)")
-    # print("=" * 70)
-    # result_simple = retrieval_chain_without_lcel(query)
-    # print("\n答案:")
-    # print(result_simple)
-
-    # 选项2：使用带LCEL的实现(更优方法)
-    print("\n"+ "="* 70)
-    print("实施方案2：采用LCEL————更优方法")
-    print("="* 70)
-    chain_with_lcel = create_retrieval_chain_with_lcel()
-    result_lcel = chain_with_lcel.invoke({"question": query})
-    print("\n答案:")
-    print(result_lcel)
+    asyncio.run(main())
+    
