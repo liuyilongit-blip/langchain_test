@@ -105,6 +105,53 @@ async def async_extract(url_batches: List[List[str]]):
         log_warning(f"TavilyExtract：{failed_batches} 个批次在提取过程中失败")
     return all_pages
 
+async def index_documents_async(documents: List[Document], batch_size: int = 50):
+    """异步批量处理文档。"""
+    log_header("向量存储阶段")
+    log_info(
+        f"📚 向量库索引: 准备将 {len(documents)} 篇文档添加到向量数据库",
+        Colors.DARKCYAN,
+    )
+
+    # 创建分批数据
+    batches = [
+        documents[i : i + batch_size] for i in range(0, len(documents), batch_size)
+    ]
+
+    log_info(
+        f"📦 向量库索引: 已拆分为 {len(batches)} 个批次，每批 {batch_size} 篇文档"
+    )
+
+    # 并发处理所有批次
+    async def add_batch(batch: List[Document], batch_num: int):
+        try:
+            await vectorstore.aadd_documents(batch)
+            log_success(
+                f"向量库索引: 成功添加批次 {batch_num}/{len(batches)}（包含 {len(batch)} 篇文档）"
+            )
+        except Exception as e:
+            log_error(f"向量库索引: 添加批次 {batch_num} 失败 - {e}")
+            return False
+        return True
+
+    # 并发执行批次任务
+    tasks = [add_batch(batch, i + 1) for i, batch in enumerate(batches)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 统计成功批次数量
+    successful = sum(1 for result in results if result is True)
+
+    if successful == len(batches):
+        log_success(
+            f"向量库索引: 所有批次均处理成功！（{successful}/{len(batches)}）"
+        )
+    else:
+        log_warning(
+            f"向量库索引: 成功处理 {successful}/{len(batches)} 个批次"
+        )
+
+
+
 async def main(): # 主协程
     """用于编排整个流程的主异步函数"""
     log_header("文档摄入管道")
@@ -144,6 +191,15 @@ async def main(): # 主协程
     log_success(
         f"文本切分器：已将 {len(all_docs)} 个文档切分为 {len(splitted_docs)} 个文本块。"
     )
+
+        # 异步处理文档入库
+    await index_documents_async(splitted_docs, batch_size=500)
+
+    log_header("流水线执行完毕")
+    log_success("🎉 文档摄取流水线成功完成！")
+    log_info("📊 总结统计:", Colors.BOLD)
+    log_info(f"   • 提取文档数: {len(all_docs)}")
+    log_info(f"   • 创建分块数: {len(splitted_docs)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
