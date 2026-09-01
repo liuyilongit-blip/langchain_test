@@ -14,7 +14,7 @@ embeddings = OpenAIEmbeddings(model="BAAI/bge-m3")
 # 初始化向量存储
 vectorstore = PineconeVectorStore(index_name="langchain-doc-index",embedding=embeddings)
 # 初始化聊天模型
-model = init_chat_model("deepseek-ai/DeepSeek-V4-Flash",model_provider="deepseek")
+model = init_chat_model("deepseek-ai/DeepSeek-V4-Flash",model_provider="openai")
 
 @tool(response_format="content_and_artifact")
 def retrieve_context(query:str):
@@ -78,6 +78,6 @@ def run_llm(query: str) -> Dict[str, Any]:
     }
 
 if __name__ == '__main__':
-    result = run_llm(query="什么是深度 Agent？")
+    result = run_llm(query="什么是深度 langchain？")
     print(result)
     
