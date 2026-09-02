@@ -1,78 +1,82 @@
-import asyncio
-import os
-# import ssl
 from typing import Any, Dict, List
 
-import certifi
-from dotenv import load_dotenv
-# from langchain_text_splitters import RecursiveCharacterTextSplitter
-# from langchain_chromadb import Chroma
-from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
-from langchain_tavily import TavilyCrawl, TavilyExtract, TavilyMap
+import streamlit as st
 
-from logger import (Colors, log_error, log_header, log_info, log_success, log_warning)
+from backend.core import run_llm
 
-load_dotenv()
 
-os.environ['HTTP_PROXY'] = ''
-os.environ['HTTPS_PROXY'] = ''
-os.environ['http_proxy'] = ''
-os.environ['https_proxy'] = ''
+def _format_sources(context_docs: List[Any]) -> List[str]:
+    """格式化并提取检索到的文档来源列表"""
+    return [str(getattr(doc, "metadata", {}).get("source", "Unknown")) for doc in (context_docs or [])]
+    # return [
+    #     str((meta.get("source") or "Unknown"))
+    #     for doc in (context_docs or [])
+    #     if (meta := (getattr(doc, "metadata", None) or {})) is not None
+    # ]
 
-# Configure SSL context to use certifi certificates
-# ssl_context = ssl.create_default_context(cafile=certifi.where())
-# os.environ["SSL_CERT_FILE"] = certifi.where()
-# os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-embeddings = OpenAIEmbeddings(
-    model="BAAI/bge-m3",
-    show_progress_bar=False, # 显示进度条
-    chunk_size=50, # 每个批次的最大文档数
-    retry_min_seconds=10, # 重试间隔参数
-)
-# chroma=Chroma(persist_directory="./chroma_db", embedding_function=embeddings)
-vectorstore = PineconeVectorStore(index_name="langchain-doc-index",embedding=embeddings)
+# 页面基础配置
+st.set_page_config(page_title="LangChain 文档助手", layout="centered")
+st.title("LangChain 文档助手")
 
-# from langchain_community.document_loaders import TextLoader
-# print('Ingesting...')
-# loader = TextLoader("./text.txt", encoding="utf-8")
-# document = loader.load()
-# print('splitter...')
-# text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size=1000, chunk_overlap=0)
-# texts = text_splitter.split_documents(document)
-# print('ingesting...')
-# PineconeVectorStore.from_documents(texts, embeddings,index_name=os.environ['INDEX_NAME'])
-# print('finish')
+# 侧边栏配置
+with st.sidebar:
+    st.subheader("会话")
+    # 清空会话按钮
+    if st.button("清除会话", use_container_width=True):
+        st.session_state.pop("messages", None)
+        st.rerun()
 
-tavily_extract = TavilyExtract()
-tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
-tavily_crawl = TavilyCrawl()
+# 初始化会话状态中的消息列表
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "您可以向我咨询任何关于 LangChain 文档的问题，我会检索相关内容并注明引用来源。",
+            "sources": [],
+        }
+    ]
 
-async def main(): # 主协程
-    """主异步函数，用于协调整个过程。"""
-    log_header("文档摄入管道")
-    log_info(
-        "TavilyCrawl开始爬取文档 https://docs.langchain.com/oss/python/",
-        Colors.PURPLE,
-    )
-    # 爬取文档网站
-    # res = tavily_crawl.invoke({
-    #     "url":"https://docs.langchain.com/oss/python/",
-    #     "max_depth":1,
-    #     "extract_depth":"advanced",
-    #     "instructions":"请获取有关智能体的内容"
-    # })
-    res = await tavily_extract.ainvoke(input={"urls": ["https://docs.langchain.com/oss/python/"]})
-    log_success(
-        f"爬取完成，获取到 {len(res['results'])} 个页面。"
-    )
-    all_docs = [Document(page_content=result["raw_content"], metadata={"source": result["url"]}) for result in res["results"]]
-    log_success(
-        f"爬取完成，获取到 {len(all_docs)} 个文档。"
-    )
+# 渲染历史聊天消息
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        # 如果有引用的来源，折叠展示
+        if msg.get("sources"):
+            with st.expander("Sources"):
+                for s in msg["sources"]:
+                    st.markdown(f"- {s}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
-    
+# 获取用户输入的提问
+prompt = st.chat_input("输入关于 LangChain 的问题…")
+if prompt:
+    # 记录并渲染用户发送的消息
+    st.session_state.messages.append({"role": "user", "content": prompt, "sources": []})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # 助手生成回答
+    with st.chat_message("assistant"):
+        try:
+            with st.spinner("检索文档并生成答案…"):
+                # 调用后端 LLM 进行检索与回答
+                result: Dict[str, Any] = run_llm(prompt)
+                answer = str(result.get("answer", "")).strip() or "(未返回答案。)"
+                sources = _format_sources(result.get("context", []))
+
+            # 展示回答内容及引用来源
+            st.markdown(answer)
+            if sources:
+                with st.expander("Sources"):
+                    for s in sources:
+                        st.markdown(f"- {s}")
+
+            # 将助手回答存入会话状态
+            st.session_state.messages.append(
+                {"role": "assistant", "content": answer, "sources": sources}
+            )
+        except Exception as e:
+            st.error("生成响应失败。")
+            st.exception(e)
+
+
